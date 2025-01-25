@@ -3,6 +3,14 @@
 #include <Kismet/GameplayStatics.h>
 
 #pragma optimize("", off)
+
+ASSP_Subsystem::ASSP_Subsystem() : Super(), splinePathMesh(nullptr), mantaPathMesh(nullptr)
+{
+	//Spawn on client will help us catch exceptions where the server tries to spawn the path mesh components itself.
+	//We don't want that as other players should not be bothered with our path visualization.
+	ReplicationPolicy = ESubsystemReplicationPolicy::SpawnOnClient;
+}
+
 bool ASSP_Subsystem::GetHasAuthority()
 {
 	return HasAuthority();
@@ -10,12 +18,13 @@ bool ASSP_Subsystem::GetHasAuthority()
 
 bool ASSP_Subsystem::ShouldSave_Implementation() const
 {
-    return true;
+	return true;
 }
 
 USplineMeshComponent* SplineMeshConstructor(USplineComponent* spline)
 {
-	USplineMeshComponent* newComponent = NewObject< USplineMeshComponent >(spline->GetOwner(), USplineMeshComponent::StaticClass());
+	USplineMeshComponent* newComponent = NewObject<USplineMeshComponent>(
+		spline, USplineMeshComponent::StaticClass());
 	newComponent->SetupAttachment(spline);
 	newComponent->Mobility = EComponentMobility::Static;
 	return newComponent;
@@ -26,12 +35,13 @@ void BuildSplineMeshes(
 	float maxSplineLengthToFill,
 	UStaticMesh* mesh,
 	float meshLength,
-	TArray< USplineMeshComponent* >& localMeshPool,
-	TArray< USplineMeshComponent* >& globalMeshPool,
+	TArray<USplineMeshComponent*>& localMeshPool,
 	bool makeMovable = false)
 {
 	const float splineLengthToFill = FMath::Clamp(spline->GetSplineLength(), 0.f, maxSplineLengthToFill);
-	const int32 numMeshes = splineLengthToFill > SMALL_NUMBER ? FMath::Max(1, FMath::RoundToInt(splineLengthToFill / meshLength)) : 0;
+	const int32 numMeshes = splineLengthToFill > SMALL_NUMBER
+		                        ? FMath::Max(1, FMath::RoundToInt(splineLengthToFill / meshLength))
+		                        : 0;
 
 	// Create more or remove the excess meshes.
 	if (numMeshes < localMeshPool.Num())
@@ -53,7 +63,6 @@ void BuildSplineMeshes(
 					newMesh->SetMobility(EComponentMobility::Movable);
 				}
 				localMeshPool.Push(newMesh);
-				globalMeshPool.Add(newMesh);
 			}
 			else
 			{
@@ -70,10 +79,13 @@ void BuildSplineMeshes(
 		{
 			const float startDistance = (float)i * segmentLength;
 			const float endDistance = (float)(i + 1) * segmentLength;
-			const FVector startPos = spline->GetLocationAtDistanceAlongSpline(startDistance, ESplineCoordinateSpace::Local);
-			const FVector startTangent = spline->GetTangentAtDistanceAlongSpline(startDistance, ESplineCoordinateSpace::Local).GetSafeNormal() * segmentLength;
+			const FVector startPos = spline->GetLocationAtDistanceAlongSpline(
+				startDistance, ESplineCoordinateSpace::Local);
+			const FVector startTangent = spline->GetTangentAtDistanceAlongSpline(
+				startDistance, ESplineCoordinateSpace::Local).GetSafeNormal() * segmentLength;
 			const FVector endPos = spline->GetLocationAtDistanceAlongSpline(endDistance, ESplineCoordinateSpace::Local);
-			const FVector endTangent = spline->GetTangentAtDistanceAlongSpline(endDistance, ESplineCoordinateSpace::Local).GetSafeNormal() * segmentLength;
+			const FVector endTangent = spline->GetTangentAtDistanceAlongSpline(
+				endDistance, ESplineCoordinateSpace::Local).GetSafeNormal() * segmentLength;
 
 			localMeshPool[i]->SetStartAndEnd(startPos, startTangent, endPos, endTangent, true);
 			localMeshPool[i]->SetStaticMesh(mesh);
@@ -90,11 +102,9 @@ void BuildSplineMeshes(
 	}
 }
 
-
-
 void ASSP_Subsystem::HandlePathSplines(AFGDrivingTargetList* targetList, bool show)
 {
-	if (HasAuthority() && targetList)
+	if (targetList)
 	{
 		//targetList->SetPathVisible(show);
 		if (show)
@@ -105,7 +115,7 @@ void ASSP_Subsystem::HandlePathSplines(AFGDrivingTargetList* targetList, bool sh
 			if (spline)
 			{
 				TArray<USplineMeshComponent*> localPool;
-				BuildSplineMeshes(spline, spline->GetSplineLength(), splinePathMesh, 100, localPool, pathMeshPool);
+				BuildSplineMeshes(spline, spline->GetSplineLength(), splinePathMesh, 100, localPool);
 
 				FSSP_MeshPoolStruct pool;
 				pool.MeshPool = localPool;
@@ -134,40 +144,41 @@ void ASSP_Subsystem::HandlePathSplines(AFGDrivingTargetList* targetList, bool sh
 void ASSP_Subsystem::ShowTargetPath(AFGTargetPoint* targetPoint)
 {
 	auto targetList = targetPoint->GetOwningList();
-	if (HasAuthority() && targetList)
+	if (targetList)
 	{
 		targetList->SetPathVisible(true);
-		//HandlePathSplines(targetList, true);
+		HandlePathSplines(targetList, true);
 	}
 }
 
 void ASSP_Subsystem::HideTargetPath(AFGTargetPoint* targetPoint)
 {
 	auto targetList = targetPoint->GetOwningList();
-	if (HasAuthority() && targetList)
+	if (targetList)
 	{
 		targetList->SetPathVisible(false);
-		//HandlePathSplines(targetList, false);
+		HandlePathSplines(targetList, false);
 	}
 }
 
 void ASSP_Subsystem::ToggleVehiclePath(AFGWheeledVehicle* vehicle)
 {
 	auto targetList = vehicle->GetTargetList();
-	if (HasAuthority() && targetList)
+	if (targetList)
 	{
 		HandlePathSplines(targetList, !targetList->IsPathVisible());
 	}
 }
+
 void ASSP_Subsystem::ShowInitialPaths(AActor* actor)
 {
 	TArray<AActor*> FoundActors;
 	UGameplayStatics::GetAllActorsOfClass(actor->GetWorld(), AFGDrivingTargetList::StaticClass(), FoundActors);
-	if (HasAuthority() && FoundActors.Num() > 0)
+	if (FoundActors.Num() > 0)
 	{
 		for (AActor* actor1 : FoundActors)
 		{
-			auto tpList = Cast< AFGDrivingTargetList>(actor1);
+			auto tpList = Cast<AFGDrivingTargetList>(actor1);
 			if (tpList && tpList->mIsPathVisible)
 			{
 				HandlePathSplines(tpList, true);
@@ -175,22 +186,24 @@ void ASSP_Subsystem::ShowInitialPaths(AActor* actor)
 		}
 	}
 }
+
 void ASSP_Subsystem::ShowAllMantaPaths(AActor* actor)
 {
 	TArray<AActor*> FoundActors;
 	UGameplayStatics::GetAllActorsOfClass(actor->GetWorld(), AFGManta::StaticClass(), FoundActors);
-	if (HasAuthority() && FoundActors.Num() > 0)
+	if (FoundActors.Num() > 0)
 	{
 		for (auto actor1 : FoundActors)
 		{
-			auto manta = Cast< AFGManta>(actor1);
+			auto manta = Cast<AFGManta>(actor1);
 			if (manta)
 			{
 				auto spline = manta->mCachedSpline;
 				if (spline)
 				{
 					TArray<USplineMeshComponent*> localPool;
-					BuildSplineMeshes(spline, spline->GetSplineLength(), mantaPathMesh, 2500, localPool, pathMeshPool, true);
+					BuildSplineMeshes(spline, spline->GetSplineLength(), mantaPathMesh, 2500, localPool,
+					                  true);
 
 					FSSP_MeshPoolStruct pool;
 					pool.MeshPool = localPool;
@@ -200,55 +213,48 @@ void ASSP_Subsystem::ShowAllMantaPaths(AActor* actor)
 		}
 	}
 }
+
 void ASSP_Subsystem::HideAllMantaPaths(AActor* actor)
 {
-	if (HasAuthority())
+	for (auto mantaPair : MantaMeshPools)
 	{
-		for (auto mantaPair : MantaMeshPools)
+		TArray<USplineMeshComponent*> meshPool = mantaPair.Value.MeshPool;
+		for (auto meshComp : meshPool)
 		{
-
-			TArray<USplineMeshComponent*> meshPool = mantaPair.Value.MeshPool;
-			for (auto meshComp : meshPool)
+			if (meshComp && meshComp->IsRegistered())
 			{
-				if (meshComp && meshComp->IsRegistered())
-				{
-					meshComp->UnregisterComponent();
-				}
+				meshComp->UnregisterComponent();
 			}
-			meshPool.Empty();
 		}
-		MantaMeshPools.Empty();
+		meshPool.Empty();
 	}
+	MantaMeshPools.Empty();
 }
+
 void ASSP_Subsystem::ShowAllVehiclePaths(AActor* actor)
 {
-	if (HasAuthority())
+	TArray<AActor*> FoundActors;
+	UGameplayStatics::GetAllActorsOfClass(actor->GetWorld(), AFGDrivingTargetList::StaticClass(), FoundActors);
+	if (FoundActors.Num() > 0)
 	{
-		TArray<AActor*> FoundActors;
-		UGameplayStatics::GetAllActorsOfClass(actor->GetWorld(), AFGDrivingTargetList::StaticClass(), FoundActors);
-		if (FoundActors.Num() > 0)
+		for (auto actor1 : FoundActors)
 		{
-			for (auto actor1 : FoundActors)
-			{
-				auto tpList = Cast< AFGDrivingTargetList>(actor1);
-				tpList->SetPathVisible(true);
-			}
+			auto tpList = Cast<AFGDrivingTargetList>(actor1);
+			tpList->SetPathVisible(true);
 		}
 	}
 }
+
 void ASSP_Subsystem::HideAllVehiclePaths(AActor* actor)
 {
-	if (HasAuthority())
+	TArray<AActor*> FoundActors;
+	UGameplayStatics::GetAllActorsOfClass(actor->GetWorld(), AFGDrivingTargetList::StaticClass(), FoundActors);
+	if (FoundActors.Num() > 0)
 	{
-		TArray<AActor*> FoundActors;
-		UGameplayStatics::GetAllActorsOfClass(actor->GetWorld(), AFGDrivingTargetList::StaticClass(), FoundActors);
-		if (FoundActors.Num() > 0)
+		for (auto actor1 : FoundActors)
 		{
-			for (auto actor1 : FoundActors)
-			{
-				auto tpList = Cast< AFGDrivingTargetList>(actor1);
-				tpList->SetPathVisible(false);
-			}
+			auto tpList = Cast<AFGDrivingTargetList>(actor1);
+			tpList->SetPathVisible(false);
 		}
 	}
 }
