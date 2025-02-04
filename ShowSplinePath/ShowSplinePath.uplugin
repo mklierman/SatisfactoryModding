@@ -1,8 +1,8 @@
 {
 	"FileVersion": 3,
 	"Version": 1,
-	"VersionName": "1.1.5",
-	"SemVersion": "1.1.5",
+	"VersionName": "1.1.6",
+	"SemVersion": "1.1.6",
 	"FriendlyName": "ShowSplinePath",
 	"Description": "Shows vehicle spline paths",
 	"Category": "Modding",
